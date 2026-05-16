@@ -1,0 +1,6 @@
+faster-whisper
+pyttsx3
+SpeechRecognition
+sounddevice
+numpy
+scipy

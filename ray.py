@@ -1,10 +1,14 @@
 import os
 import webbrowser
 import subprocess
+# pyrefly: ignore [missing-import]
 import pyttsx3
+# pyrefly: ignore [missing-import]
 import speech_recognition as sr
+# pyrefly: ignore [missing-import]
 from faster_whisper import WhisperModel
 import tempfile
+# pyrefly: ignore [missing-import]
 import sounddevice as sd
 import numpy as np
 import scipy.io.wavfile as wav
@@ -146,6 +150,8 @@ ALIASES = {
     "launch chrome": "open chrome",
     "start chrome": "open chrome",
     "google chrome": "open chrome",
+    "open antigrav": "open antigravity",
+    "movie time":"open stremio"
 }
 
 # ==========================================
@@ -186,7 +192,14 @@ def handle_file_command(user_input):
     lower = user_input.lower()
     
     # Pattern: "search for X" or "find X" -> open Everything GUI
-    search_keywords = ["search for ", "find ", "look for ", "where is "]
+    search_keywords = [
+        "search for ", 
+        "find ", 
+        "look for ", 
+        "where is ", 
+        "file search"
+        , "search files", 
+        "search files for"]
     for kw in search_keywords:
         if kw in lower:
             query = user_input[lower.index(kw) + len(kw):].strip()

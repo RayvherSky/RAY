@@ -281,7 +281,7 @@ def execute_command(command_text):
 # MAIN LOOP (Voice + Text)
 # ==========================================
 if __name__ == "__main__":
-    speak("Project RAY version 3 is online and ready.")
+    speak("Project RAY version 0.2 is online and ready.")
     
     is_running = True
     while is_running:

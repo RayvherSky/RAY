@@ -4,3 +4,4 @@ SpeechRecognition
 sounddevice
 numpy
 scipy
+openwakeword

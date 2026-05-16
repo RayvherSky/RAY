@@ -2,8 +2,7 @@
 wake_word.py — Local wake-word listener for Project RAY.
 
 Uses the openwakeword library (fully local, no cloud) to detect the
-wake phrase "hey ray" via the built-in ``hey_jarvis`` model (closest
-phonetic match available out of the box).
+wake phrase via the built-in ``hey_jarvis`` pre-trained model.
 
 Usage:
     from wake_word import start_listener, stop_listener
@@ -16,6 +15,7 @@ Usage:
     stop_listener()           # clean shutdown
 """
 
+import time
 import threading
 import numpy as np
 
@@ -30,13 +30,10 @@ from openwakeword.model import Model as OWWModel
 # ==========================================
 _SAMPLE_RATE = 16000          # openwakeword expects 16 kHz mono
 _CHUNK_SAMPLES = 1280         # 80 ms frames (openwakeword default)
-_THRESHOLD = 0.5              # Detection confidence threshold (0‑1)
-_COOLDOWN_FRAMES = 30         # Ignore re-triggers for ~2.4 s after a hit
+_THRESHOLD = 0.5              # Detection confidence threshold (0–1)
+_DEBOUNCE_SECONDS = 2.0       # Ignore re-triggers for 2 s after a hit
 
-# Model name — openwakeword ships several built-in models.
-# "hey_jarvis" is the closest phonetic match to "hey ray" and works
-# well out of the box.  When a custom "hey_ray" model is trained later,
-# swap this string.
+# Pre-trained model name shipped with openwakeword.
 _MODEL_NAME = "hey_jarvis"
 
 
@@ -51,20 +48,22 @@ def _listener_loop(callback) -> None:
     """Continuously capture mic audio and run wake-word inference.
 
     Calls *callback()* (with no arguments) each time the wake phrase is
-    detected, then enters a cooldown period to prevent rapid re-fires.
+    detected, then debounces for ``_DEBOUNCE_SECONDS`` to prevent
+    rapid re-fires.
     """
-    # Lazily load the model inside the thread so module import is fast
+    # Load model inside the thread so module import stays fast
     print("[wake_word] Loading wake-word model …")
-    oww = OWWModel(wakeword_models=[_MODEL_NAME], inference_framework="onnx")
+    oww = OWWModel(wakeword_models=[_MODEL_NAME])
     print(f"[wake_word] Listening for wake word (model: {_MODEL_NAME}) …")
 
-    cooldown_remaining = 0
+    last_trigger_time = 0.0
 
     # Find preferred mic (same logic as ray.py — prefer Fifine if present)
     device_id = None
     for i, dev in enumerate(sd.query_devices()):
         if dev['max_input_channels'] > 0 and 'fifine' in dev['name'].lower():
             device_id = i
+            print(f"[wake_word] Using mic: {dev['name']}")
             break
 
     try:
@@ -79,20 +78,18 @@ def _listener_loop(callback) -> None:
                 data, _ = stream.read(_CHUNK_SAMPLES)
                 audio_frame = data.flatten().astype(np.int16)
 
-                # Run prediction
-                oww.predict(audio_frame)
+                # Run prediction — returns dict like {"hey_jarvis": 0.87}
+                scores = oww.predict(audio_frame)
+                score = scores.get(_MODEL_NAME, 0.0)
 
-                # Check scores for our target model
-                scores = oww.get_prediction([_MODEL_NAME])
-                score = scores[_MODEL_NAME] if isinstance(scores, dict) else 0.0
-
-                if cooldown_remaining > 0:
-                    cooldown_remaining -= 1
+                # Debounce: skip if we triggered recently
+                now = time.monotonic()
+                if now - last_trigger_time < _DEBOUNCE_SECONDS:
                     continue
 
                 if score >= _THRESHOLD:
                     print(f"[wake_word] Detected! (confidence {score:.2f})")
-                    cooldown_remaining = _COOLDOWN_FRAMES
+                    last_trigger_time = now
                     try:
                         callback()
                     except Exception as exc:

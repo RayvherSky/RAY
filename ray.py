@@ -1,8 +1,9 @@
 import os
 import webbrowser
 import subprocess
-# pyrefly: ignore [missing-import]
-import pyttsx3
+import threading
+import queue
+
 # pyrefly: ignore [missing-import]
 import speech_recognition as sr
 # pyrefly: ignore [missing-import]
@@ -13,22 +14,11 @@ import sounddevice as sd
 import numpy as np
 import scipy.io.wavfile as wav
 
-# ==========================================
-# VOICE ENGINE (TTS)
-# ==========================================
-engine = pyttsx3.init()
+# --- Non-blocking TTS (from module) ---
+from tts_engine import speak, wait_until_done
 
-# Optional: Tweak the voice settings (speed and which voice to use)
-engine.setProperty('rate', 170) # 170 is a good, natural talking speed
-voices = engine.getProperty('voices')
-# Usually voices[0] is male, voices[1] is female. Change the index to test them!
-engine.setProperty('voice', voices[0].id) 
-
-def speak(text):
-    """Makes RAY speak the text out loud."""
-    print(f"RAY: {text}")
-    engine.say(text)
-    engine.runAndWait()
+# --- Wake word listener (from module) ---
+from wake_word import start_listener, stop_listener
 
 # ==========================================
 # LISTENING ENGINE (STT)
@@ -133,7 +123,7 @@ APP_COMMANDS = {
     "open notepad": 'notepad',
     "open task manager": 'taskmgr',
     "open spotify": 'start spotify:',
-    "open stremio": 'start stremio',
+    "open stremio": '"C:\\Users\\R - Sky Y-Kim\\AppData\\Local\\Programs\\Stremio\\stremio-shell-ng.exe"',
 }
 
 # Custom aliases (nicknames)
@@ -141,6 +131,7 @@ ALIASES = {
     "my code thing": "open vs code",
     "the inbox": "open gmail",
     "play music": "open spotify",
+    "play some music": "open spotify",
     "calculator": "open calculator",
     "terminal": "open command prompt",
     "cmd": "open command prompt",
@@ -233,7 +224,11 @@ def execute_command(command_text):
     command_text = command_text.lower().strip().rstrip('.,!?;')
     
     # Exit commands (now works with "exit" from voice or text)
-    if command_text in ["exit", "sleep", "quit"]:
+    if command_text in [
+        "exit", "sleep", "quit", "goodnight", "goodbye"
+        ,"see ya","good bye","good night", "see you", "bye",
+        "shutdown", "turn off"
+        ]:
         speak("Shutting down. Talk to you later!")
         return False
     
@@ -277,33 +272,92 @@ def execute_command(command_text):
     speak(f"I don't know how to do '{command_text}'.")
     return True
 
+
 # ==========================================
-# MAIN LOOP (Voice + Text)
+# NON-BLOCKING INPUT (background thread)
+# ==========================================
+_input_queue: queue.Queue[str] = queue.Queue()
+
+def _input_worker():
+    """Read stdin in a background thread so the main loop can poll
+    both wake-word events and keyboard input without blocking."""
+    while True:
+        try:
+            line = input("> ").strip()
+            _input_queue.put(line)
+        except EOFError:
+            break
+
+
+# ==========================================
+# MAIN LOOP (Wake Word + Voice + Text)
 # ==========================================
 if __name__ == "__main__":
-    speak("Project RAY version 0.2 is online and ready.")
-    
+    speak("Project RAY version 0.3 is online and ready.")
+
+    # --- Wake word setup ---
+    wake_event = threading.Event()
+
+    def on_wake():
+        """Called by wake_word listener thread when 'hey jarvis' is detected."""
+        wake_event.set()
+
+    start_listener(on_wake)
+
+    # --- Non-blocking input thread ---
+    input_thread = threading.Thread(target=_input_worker, daemon=True, name="RAY-Input")
+    input_thread.start()
+
     is_running = True
     while is_running:
-        print("\n[Press ENTER to speak, or type a command and press ENTER]")
-        user_input = input("> ").strip()
-        
-        if user_input.lower() in ["exit", "quit", "sleep"]:
-            speak("Shutting down.")
-            break
-        
-        if user_input == "":
-            # Empty input -> listen for voice
-            user_command = listen_for_command()
-            if not user_command:
-                speak("I didn't hear anything.")
+        print("\n[Say the wake word, press ENTER to speak, or type a command]")
+
+        # Poll both sources: wake word event + keyboard input
+        command_text = None
+        while command_text is None:
+            # Check wake word
+            if wake_event.is_set():
+                wake_event.clear()
+                print("[Wake word detected — listening for command...]")
+                user_command = listen_for_command()
+                if user_command:
+                    command_text = user_command
+                else:
+                    speak("I didn't hear anything after the wake word.")
+                    print("\n[Say the wake word, press ENTER to speak, or type a command]")
                 continue
-            command_text = user_command
-        else:
-            # User typed something
-            command_text = user_input
-        
+
+            # Check keyboard input (non-blocking)
+            try:
+                user_input = _input_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue  # No input yet — loop back and check wake_event
+
+            if user_input.lower() in ["exit", "quit", "sleep"]:
+                speak("Shutting down.")
+                is_running = False
+                break
+
+            if user_input == "":
+                # Empty ENTER -> manual voice trigger
+                user_command = listen_for_command()
+                if not user_command:
+                    speak("I didn't hear anything.")
+                    print("\n[Say the wake word, press ENTER to speak, or type a command]")
+                    continue
+                command_text = user_command
+            else:
+                # User typed a text command
+                command_text = user_input
+
+        if not is_running:
+            break
+
         # Normalize: lowercase, strip, remove trailing punctuation
         command_text = command_text.lower().strip().rstrip('.,!?;')
         
         is_running = execute_command(command_text)
+
+    # --- Clean shutdown ---
+    stop_listener()
+    wait_until_done()

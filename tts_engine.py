@@ -17,6 +17,8 @@ import atexit
 # pyrefly: ignore [missing-import]
 import pyttsx3
 
+from config import TTS_RATE, TTS_VOICE_INDEX
+
 
 # ==========================================
 # INTERNAL STATE
@@ -34,10 +36,10 @@ def _worker() -> None:
     """
     engine = pyttsx3.init()
 
-    # Voice settings — keep in sync with the originals in ray.py
-    engine.setProperty('rate', 170)
+    # Voice settings pulled from config.py
+    engine.setProperty('rate', TTS_RATE)
     voices = engine.getProperty('voices')
-    engine.setProperty('voice', voices[0].id)
+    engine.setProperty('voice', voices[TTS_VOICE_INDEX].id)
 
     _engine_ready.set()  # Signal that the engine is initialized
 

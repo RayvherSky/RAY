@@ -8,6 +8,7 @@ that ray.py uses.
 
 import os
 import tempfile
+import time
 
 import numpy as np
 import scipy.io.wavfile as wav
@@ -64,6 +65,7 @@ def listen_for_command() -> str:
     transcription.  Returns an empty string if nothing was captured.
     """
     device_id = find_microphone()
+    time.sleep(0.3)  # clear mic buffer of wake-word tail
     audio = record_until_silence(device_id)
 
     if audio is None or len(audio) == 0:

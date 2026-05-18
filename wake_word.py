@@ -41,6 +41,7 @@ _MODEL_NAME = "hey_jarvis"
 # INTERNAL STATE
 # ==========================================
 _stop_event = threading.Event()
+_ready_event = threading.Event()
 _thread: threading.Thread | None = None
 
 
@@ -65,6 +66,8 @@ def _listener_loop(callback) -> None:
             device_id = i
             print(f"[wake_word] Using mic: {dev['name']}")
             break
+
+    _ready_event.set()  # Signal that model + mic are ready
 
     try:
         with sd.InputStream(
@@ -120,6 +123,7 @@ def start_listener(callback) -> None:
         return
 
     _stop_event.clear()
+    _ready_event.clear()
     _thread = threading.Thread(
         target=_listener_loop,
         args=(callback,),
@@ -127,6 +131,11 @@ def start_listener(callback) -> None:
         name="RAY-WakeWord",
     )
     _thread.start()
+
+
+def wait_until_ready() -> None:
+    """Block until the wake-word model and mic are fully initialized."""
+    _ready_event.wait()
 
 
 def stop_listener() -> None:
@@ -137,3 +146,4 @@ def stop_listener() -> None:
         _thread.join(timeout=5)
         _thread = None
     print("[wake_word] Listener stopped.")
+

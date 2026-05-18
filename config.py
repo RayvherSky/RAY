@@ -5,6 +5,8 @@ All user-configurable values live here so they can be tuned in one
 place without touching any logic modules.
 """
 
+VERSION = "0.5"
+
 # ==========================================
 # VOICE / TTS SETTINGS
 # ==========================================

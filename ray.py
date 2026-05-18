@@ -14,9 +14,10 @@ import threading
 import queue
 
 from tts_engine import speak, wait_until_done
-from wake_word import start_listener, stop_listener
+from wake_word import start_listener, stop_listener, wait_until_ready
 from stt_engine import listen_for_command
 from commands.app_commands import execute_command
+from config import VERSION
 
 
 # ==========================================
@@ -40,9 +41,7 @@ def _input_worker():
 # MAIN LOOP (Wake Word + Voice + Text)
 # ==========================================
 if __name__ == "__main__":
-    speak("Project RAY version 0.3 is online and ready.")
-
-    # --- Wake word setup ---
+    # --- Wake word setup (start BEFORE the greeting) ---
     wake_event = threading.Event()
 
     def on_wake():
@@ -50,6 +49,10 @@ if __name__ == "__main__":
         wake_event.set()
 
     start_listener(on_wake)
+    wait_until_ready()  # Block until wake-word model + mic are loaded
+
+    # All modules ready — now greet
+    speak(f"Project RAY version {VERSION} is online and ready.")
 
     # --- Non-blocking input thread ---
     input_thread = threading.Thread(target=_input_worker, daemon=True, name="RAY-Input")

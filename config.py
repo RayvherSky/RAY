@@ -26,7 +26,7 @@ WHISPER_BEAM_SIZE = 5
 # ==========================================
 SAMPLE_RATE = 16000                 # Hz — Whisper expects 16 kHz
 SILENCE_THRESHOLD = 0.01            # RMS below this = silence
-SILENCE_DURATION = 1.0              # Seconds of silence before auto-stop
+SILENCE_DURATION = 1.8             # Seconds of silence before auto-stop
 MAX_RECORD_SECONDS = 5              # Hard cap on recording length
 CHUNK_DURATION = 0.1                # 100 ms per chunk
 MIC_KEYWORD = "fifine"              # Preferred mic substring match
@@ -101,3 +101,11 @@ EXIT_PHRASES = [
     "see ya", "good bye", "good night", "see you", "bye",
     "shutdown", "turn off",
 ]
+
+# ==========================================
+# INTENT PARSER SETTINGS
+# ==========================================
+FUZZY_THRESHOLD = 86  #72 original
+LLM_TIMEOUT_SECONDS = 6          # stub — ollama lib has no native timeout
+INTENT_MODE = "hybrid"            # reserved: "hybrid" | "agentic" (future)
+OLLAMA_MODEL = "qwen2.5-coder:1.5b" #use llama3.2:3b when i have downloaded it

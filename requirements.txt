@@ -6,3 +6,5 @@ numpy
 scipy
 openwakeword
 webrtcvad-wheels
+rapidfuzz
+ollama

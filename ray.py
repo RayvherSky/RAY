@@ -7,17 +7,25 @@ Orchestration only — all business logic lives in modules:
   wake_word.py       → wake-word listener
   stt_engine.py      → Whisper transcription
   audio_capture.py   → sounddevice recording
-  commands/          → command dispatch & file search
+  commands/          → command dispatch, intent parsing & file search
 """
 
+import os
 import threading
 import queue
+import webbrowser
 
 from tts_engine import speak, wait_until_done
 from wake_word import start_listener, stop_listener, wait_until_ready
 from stt_engine import listen_for_command
-from commands.app_commands import execute_command
-from config import VERSION
+from commands.intent_parser import parse_intent
+from commands.web_commands import handle_web_search
+from commands.file_commands import (
+    handle_file_command,
+    everything_search,
+    open_everything_gui,
+)
+from config import VERSION, APP_COMMANDS, ALIASES
 
 
 # ==========================================
@@ -35,6 +43,87 @@ def _input_worker():
             _input_queue.put(line)
         except EOFError:
             break
+
+
+# ==========================================
+# COMMAND DISPATCH (intent-driven)
+# ==========================================
+def _dispatch(command_text: str) -> bool:
+    """Resolve intent and execute the appropriate action.
+
+    Returns ``True`` to keep running, ``False`` to exit.
+    """
+    result = parse_intent(command_text)
+    print(f"DEBUG intent: source={result['source']}  "
+          f"intent={result['intent']}  entity={result['entity']!r}")
+
+    intent = result["intent"]
+    entity = result["entity"]
+
+    # ── exit ──────────────────────────────────────────────────────
+    if intent == "exit":
+        speak("Shutting down. Talk to you later!")
+        return False
+
+    # ── open_app ──────────────────────────────────────────────────
+    if intent == "open_app":
+        # Resolve alias → canonical command if needed
+        cmd_key = entity
+        if cmd_key in ALIASES:
+            cmd_key = ALIASES[cmd_key]
+
+        action = APP_COMMANDS.get(cmd_key)
+        if action:
+            speak(f"Executing '{action}'...")
+            try:
+                if action.startswith("start https://") or action.startswith("start http://"):
+                    url = action.split(" ", 1)[1]
+                    webbrowser.open(url)
+                else:
+                    os.system(action)
+                speak("Done.")
+            except Exception as e:
+                speak(f"Error - {e}")
+        else:
+            speak(f"I don't know how to open '{entity}'.")
+        return True
+
+    # ── file_search ───────────────────────────────────────────────
+    if intent == "file_search":
+        if entity:
+            # Try direct file open first, fall back to Everything GUI
+            file_result = handle_file_command(f"find {entity}")
+            if file_result:
+                action_type, query = file_result
+                if action_type == "gui":
+                    open_everything_gui(query)
+                elif action_type == "open_direct":
+                    results = everything_search(query, max_results=1)
+                    if results:
+                        file_path = results[0]
+                        speak(f"Opening '{file_path}'...")
+                        os.startfile(file_path)
+                    else:
+                        speak(f"No file found for '{query}'.")
+                        open_everything_gui(query)
+            else:
+                open_everything_gui(entity)
+        else:
+            speak("What file should I search for?")
+        return True
+
+    # ── web_search ────────────────────────────────────────────────
+    if intent == "web_search":
+        if entity:
+            response = handle_web_search(entity)
+            speak(response)
+        else:
+            speak("What should I search for?")
+        return True
+
+    # ── unknown ───────────────────────────────────────────────────
+    speak("I don't know how to do that yet.")
+    return True
 
 
 # ==========================================
@@ -83,11 +172,6 @@ if __name__ == "__main__":
             except queue.Empty:
                 continue  # No input yet — loop back and check wake_event
 
-            if user_input.lower() in ["exit", "quit", "sleep"]:
-                speak("Shutting down.")
-                is_running = False
-                break
-
             if user_input == "":
                 # Empty ENTER -> manual voice trigger
                 user_command = listen_for_command()
@@ -106,7 +190,7 @@ if __name__ == "__main__":
         # Normalize: lowercase, strip, remove trailing punctuation
         command_text = command_text.lower().strip().rstrip('.,!?;')
 
-        is_running = execute_command(command_text)
+        is_running = _dispatch(command_text)
 
     # --- Clean shutdown ---
     stop_listener()
